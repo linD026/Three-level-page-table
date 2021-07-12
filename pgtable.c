@@ -3,7 +3,6 @@
 #include <stdlib.h>
 
 /* spinlock  */
-
 #include <threads.h>
 
 typedef mtx_t spinlock_t;
@@ -14,7 +13,9 @@ typedef mtx_t spinlock_t;
   })
 #define spin_unlock(ptl) mtx_unlock(ptl)
 
-/* Page action */
+/**
+ * page marco and struct page define
+ */
 #define PAGE_SHIFT 12
 #define PAGE_SIZE (_AC(1, UL) << PAGE_SHIFT)
 #define PAGE_MASK (~((1 << PAGE_SHIFT) - 1))
@@ -26,35 +27,23 @@ typedef mtx_t spinlock_t;
 #define ALIGH(x, mask) (((x) + (mask)) & ~(mask))
 #define PAGE_ALIGN(addr) ALIGN(addr, PAGE_SIZE)
 
-#define PMD_SHIFT 21
-
-#define PMD_SIZE (1UL << PMD_SHIFT)
-#define PMD_MASK (~((1 << PMD_SHIFT) - 1))
-#define PGDIR_SIZE (1UL << PGDIR_SHIFT)
-#define PGDIR_MASK (~((1 << PGDIR_SHIFT) - 1))
-
-#define PGDIR_SHIFT 30
-
-#define PTRS_PER_PTE 512
-#define PTRS_PER_PMD 512
-#define PTRS_PER_PGD 4
-
-#define pgd_index(a) (((a) >> PGDIR_SHIFT) & (PTRS_PER_PGD - 1))
-#define pmd_index(a) (((a) >> PMD_SHIFT) & (PTRS_PER_PMD - 1))
-#define pte_index(a) ((a >> PAGE_SHIFT) & (PTRS_PER_PTE - 1))
-
 struct page {
   char buf[8];
 };
-typedef struct page *pgtable_t;
 
-pgtable_t pgtable_new(void) {
-  pgtable_t new = (pgtable_t)malloc(sizeof(struct page) * 512);
-  printf("[pgtable_new] pgtable start %p\n", new);
-  if (!new)
-    return NULL;
-  return new;
-}
+/**
+ * 3 level page table marco
+ * 
+ *          pgd -> pmd -> pte -> page frame 
+ * 
+ * It is 4 pgd in mm_stuct pointed by mm_struct->pgd,
+ * The pmd amd pte size are 4096, and each pte will 
+ * point to the pgtable type page frame which size also
+ * 4096 bytes. 
+ * Different from the pte point to the physical page in
+ * linux kerenl, the page frame here is the 512 number of
+ * struct page. 
+ */
 
 #include <stdint.h>
 
@@ -62,7 +51,7 @@ typedef uint64_t pteval_t;
 typedef uint64_t pmdval_t;
 typedef uint64_t pgdval_t;
 
-/*no C type-checking */
+/* C type-checking */
 typedef struct {
   pteval_t pte;
 } pte_t;
@@ -90,6 +79,33 @@ typedef struct {
 #define pgd_none(pgd) (!pgd_val(pgd))
 #define pgd_present(pgd) (pgd_val(pgd))
 
+#define PMD_SHIFT 21
+
+#define PMD_SIZE (1UL << PMD_SHIFT)
+#define PMD_MASK (~((1 << PMD_SHIFT) - 1))
+#define PGDIR_SIZE (1UL << PGDIR_SHIFT)
+#define PGDIR_MASK (~((1 << PGDIR_SHIFT) - 1))
+
+#define PGDIR_SHIFT 30
+
+#define PTRS_PER_PTE 512
+#define PTRS_PER_PMD 512
+#define PTRS_PER_PGD 4
+
+#define pgd_index(a) (((a) >> PGDIR_SHIFT) & (PTRS_PER_PGD - 1))
+#define pmd_index(a) (((a) >> PMD_SHIFT) & (PTRS_PER_PMD - 1))
+#define pte_index(a) ((a >> PAGE_SHIFT) & (PTRS_PER_PTE - 1))
+
+typedef struct page *pgtable_t; /* page frame */
+
+pgtable_t pgtable_new(void) {
+  pgtable_t new = (pgtable_t)malloc(sizeof(struct page) * 512);
+  printf("[pgtable_new] pgtable start %p\n", new);
+  if (!new)
+    return NULL;
+  return new;
+}
+
 #include <stdatomic.h>
 
 #define u64 uint64_t
@@ -100,6 +116,10 @@ struct mm_struct {
   spinlock_t page_table_lock;
   atomic_u64 pgtables_bytes;
 };
+
+/**
+ * page table allocate function
+ */
 
 #include <string.h>
 #include <sys/mman.h>
@@ -207,7 +227,6 @@ pmd_t *walk_to_pmd(struct mm_struct *mm, u64 addr) {
 }
 
 /* old version */
-#define mk_pte(page) (pte_t)((u64)(page) & ~(u64)(1023))
 int insert_page(struct mm_struct *mm, struct page *page, u64 addr) {
   pte_t *pte;
   spinlock_t *ptl;
@@ -236,6 +255,11 @@ int insert_page(struct mm_struct *mm, struct page *page, u64 addr) {
   spin_unlock(ptl);
   return 0;
 }
+
+/**
+ * test function start here :
+ * - test_insert_page
+ */
 
 #define mm_init()                                                              \
   ({                                                                           \
