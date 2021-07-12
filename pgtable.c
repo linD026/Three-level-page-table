@@ -33,16 +33,16 @@ struct page {
 
 /**
  * 3 level page table marco
- * 
- *          pgd -> pmd -> pte -> page frame 
- * 
+ *
+ *          pgd -> pmd -> pte -> page frame
+ *
  * It is 4 pgd in mm_stuct pointed by mm_struct->pgd,
- * The pmd amd pte size are 4096, and each pte will 
+ * The pmd amd pte size are 4096, and each pte will
  * point to the pgtable type page frame which size also
- * 4096 bytes. 
+ * 4096 bytes.
  * Different from the pte point to the physical page in
  * linux kerenl, the page frame here is the 512 number of
- * struct page. 
+ * struct page.
  */
 
 #include <stdint.h>
@@ -244,10 +244,12 @@ int insert_page(struct mm_struct *mm, struct page *page, u64 addr) {
   pgtable_t table = (pgtable_t)pteval;
   if (!table) {
     table = pgtable_new();
+    if (!table) {
+      spin_unlock(ptl);
+      return -3;
+    }
     pteval = (pteval_t)table;
     pte[0] = __pte(pteval);
-    if (!table)
-      return -3;
   }
   printf("[insert_page] table start %p\n", table);
   // table[addr & ~PAGE_MASK] = *page;
@@ -271,7 +273,8 @@ int insert_page(struct mm_struct *mm, struct page *page, u64 addr) {
     __mm;                                                                      \
   })
 
-void test_insert_page_check(struct mm_struct *mm, u64 va, u64 pgdi, u64 pmdi, u64 ptei, u64 offset) {
+void test_insert_page_check(struct mm_struct *mm, u64 va, u64 pgdi, u64 pmdi,
+                            u64 ptei, u64 offset) {
   pgdval_t pgdval = pgd_val(mm->pgd[pgdi]);
   pmd_t *pmd = (pmd_t *)pgdval;
   printf("[3] pmd start %p\n", pmd);
@@ -295,7 +298,7 @@ void test_insert_page(void) {
   struct mm_struct mm = mm_init();
   pgd_alloc(&mm);
 
-  for (int i = 0;i < 10;i++) {
+  for (int i = 0; i < 10; i++) {
     printf("----------------test %d------------------\n", i);
     pgdi = i % 4;
     pmdi = i;
