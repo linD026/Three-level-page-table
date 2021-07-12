@@ -1,8 +1,9 @@
-/* spinlock  */
 #define _GNU_SOURCE
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+/* spinlock  */
+
 #include <threads.h>
 
 typedef mtx_t spinlock_t;
@@ -25,18 +26,22 @@ typedef mtx_t spinlock_t;
 #define ALIGH(x, mask) (((x) + (mask)) & ~(mask))
 #define PAGE_ALIGN(addr) ALIGN(addr, PAGE_SIZE)
 
-#define PMD_SHIFT		21
+#define PMD_SHIFT 21
 
-#define PMD_SIZE		(1UL << PMD_SHIFT)
-#define PMD_MASK		(~((1 << PMD_SHIFT) - 1))
-#define PGDIR_SIZE		(1UL << PGDIR_SHIFT)
-#define PGDIR_MASK		(~((1 << PGDIR_SHIFT) - 1))
+#define PMD_SIZE (1UL << PMD_SHIFT)
+#define PMD_MASK (~((1 << PMD_SHIFT) - 1))
+#define PGDIR_SIZE (1UL << PGDIR_SHIFT)
+#define PGDIR_MASK (~((1 << PGDIR_SHIFT) - 1))
 
-#define PGDIR_SHIFT		30
+#define PGDIR_SHIFT 30
 
-#define PTRS_PER_PTE		512
-#define PTRS_PER_PMD		512
-#define PTRS_PER_PGD		4
+#define PTRS_PER_PTE 512
+#define PTRS_PER_PMD 512
+#define PTRS_PER_PGD 4
+
+#define pgd_index(a) (((a) >> PGDIR_SHIFT) & (PTRS_PER_PGD - 1))
+#define pmd_index(a) (((a) >> PMD_SHIFT) & (PTRS_PER_PMD - 1))
+#define pte_index(a) ((a >> PAGE_SHIFT) & (PTRS_PER_PTE - 1))
 
 struct page {
   char buf[8];
@@ -96,8 +101,8 @@ struct mm_struct {
   atomic_u64 pgtables_bytes;
 };
 
-#include <sys/mman.h>
 #include <string.h>
+#include <sys/mman.h>
 
 int __pte_alloc(struct mm_struct *mm, pmd_t *pmd) {
   pte_t *new = (pte_t *)mmap(NULL, 4096, PROT_READ | PROT_WRITE,
@@ -108,7 +113,7 @@ int __pte_alloc(struct mm_struct *mm, pmd_t *pmd) {
 
   memset(new, 0, 4096);
 
-  printf("[__pte_alloc] first pte addr %p\n", new);  
+  printf("[__pte_alloc] first pte addr %p\n", new);
 
   ptl = spin_lock(mm);
   if (pmd_none(*pmd)) {
@@ -123,17 +128,15 @@ int __pte_alloc(struct mm_struct *mm, pmd_t *pmd) {
   return 0;
 }
 
-#define pte_index(a)  ((a >> PAGE_SHIFT) & (PTRS_PER_PTE - 1))
-
 static inline pte_t *pte_offset(pmd_t *pmd, u64 addr) {
   pmdval_t pmdval = pmd_val(pmd[0]);
-  return  (pte_t *) pmdval + pte_index(addr);
+  return (pte_t *)pmdval + pte_index(addr);
 }
 
-static inline pte_t *pte_alloc(struct mm_struct *mm, pmd_t *pmd, u64 address)
-{
-	return ( (pmd_none(*(pmd)) && __pte_alloc(mm, pmd))?
-		NULL: pte_offset(pmd, address));
+static inline pte_t *pte_alloc(struct mm_struct *mm, pmd_t *pmd, u64 address) {
+  return ((pmd_none(*(pmd)) && __pte_alloc(mm, pmd))
+              ? NULL
+              : pte_offset(pmd, address));
 }
 
 int __pmd_alloc(struct mm_struct *mm, pgd_t *pgd) {
@@ -146,7 +149,6 @@ int __pmd_alloc(struct mm_struct *mm, pgd_t *pgd) {
   memset(new, 0, 4096);
 
   printf("[__pmd_alloc] first pmd addr %p\n", new);
-  printf("[__pmd_alloc] offset 12 is %p\n", (pmd_t *) new + 12);
 
   ptl = spin_lock(mm);
   if (!pgd_present(*pgd)) {
@@ -161,17 +163,15 @@ int __pmd_alloc(struct mm_struct *mm, pgd_t *pgd) {
   return 0;
 }
 
-#define pmd_index(a) (((a) >> PMD_SHIFT) & (PTRS_PER_PMD - 1))
-
 static inline pmd_t *pmd_offset(pgd_t *pgd, u64 addr) {
   pgdval_t pgdval = pgd_val(pgd[0]);
   return (pmd_t *)pgdval + pmd_index(addr);
 }
 
-static inline pmd_t *pmd_alloc(struct mm_struct *mm, pgd_t *pgd, u64 address)
-{
-	return ((pgd_none(*(pgd)) && __pmd_alloc(mm, pgd))?
-	NULL: pmd_offset(pgd, address));
+static inline pmd_t *pmd_alloc(struct mm_struct *mm, pgd_t *pgd, u64 address) {
+  return ((pgd_none(*(pgd)) && __pmd_alloc(mm, pgd))
+              ? NULL
+              : pmd_offset(pgd, address));
 }
 
 int pgd_alloc(struct mm_struct *mm) {
@@ -191,11 +191,8 @@ no_pgd:
   return 0;
 }
 
-#define pgd_index(a)  (((a) >> PGDIR_SHIFT) & (PTRS_PER_PGD - 1))
-
-static inline pgd_t *pgd_offset(pgd_t *pgd, u64 address)
-{
-	return (pgd + pgd_index(address));
+static inline pgd_t *pgd_offset(pgd_t *pgd, u64 address) {
+  return (pgd + pgd_index(address));
 };
 
 pmd_t *walk_to_pmd(struct mm_struct *mm, u64 addr) {
@@ -222,22 +219,20 @@ int insert_page(struct mm_struct *mm, struct page *page, u64 addr) {
   pte = pte_alloc(mm, pmd, addr);
   if (!pte)
     return -2;
-
   printf("[insert_page] pte %p\n", pte);
-
   ptl = spin_lock(mm);
   pteval_t pteval = pte_val(pte[0]);
   pgtable_t table = (pgtable_t)pteval;
   if (!table) {
-    table = (pgtable_t)malloc(sizeof(struct page) * 512);
+    table = pgtable_new();
     pteval = (pteval_t)table;
     pte[0] = __pte(pteval);
     if (!table)
       return -3;
   }
   printf("[insert_page] table start %p\n", table);
-  //table[addr & ~PAGE_MASK] = *page;
-  strncpy(table[addr & ~PAGE_MASK].buf, page->buf, 8);
+  // table[addr & ~PAGE_MASK] = *page;
+  memcpy(table[addr & ~PAGE_MASK].buf, page->buf, 8);
   spin_unlock(ptl);
   return 0;
 }
@@ -252,41 +247,8 @@ int insert_page(struct mm_struct *mm, struct page *page, u64 addr) {
     __mm;                                                                      \
   })
 
-
-void test_insert_page(void) {
-  u64 pgdi = 3;
-  u64 pmdi = 12;
-  u64 ptei = 2;
-  u64 offset = 8;
-
-  struct mm_struct mm = mm_init();
-  u64 va = 0;
-  // pgd set
-  va |= (pgdi << PGDIR_SHIFT);
-  // pmd set
-  va |= (pmdi << PMD_SHIFT);
-  // pte set
-  va |= (ptei << PAGE_SHIFT);
-  // offset set
-  va = va | offset;
-  printf("[0] va = %p\n", (void *)va);
-  printf("[pgd index] set %lu, get %lu\n", pgdi, pgd_index(va));
-  printf("[pmd index] set %lu, get %lu\n", pmdi, pmd_index(va));
-  printf("[pte index] set %lu, get %lu\n", ptei, pte_index(va));
-  printf("[offset index] set %lu, get %lu\n", offset, va & ~PAGE_MASK);
-
-
-  pgd_alloc(&mm);
-  //pmd_alloc(&mm, &mm.pgd[3], va);
-  printf("[1] pgd allocated mm.pgd[0] %p\n", mm.pgd);
-
-
-  struct page pg;
-  strncpy(pg.buf, "table", 8);
-  insert_page(&mm, &pg, va);
-  printf("[2] insert_page finish\n");
-
-  pgdval_t pgdval = pgd_val(mm.pgd[pgdi]);
+void test_insert_page_check(struct mm_struct *mm, u64 va, u64 pgdi, u64 pmdi, u64 ptei, u64 offset) {
+  pgdval_t pgdval = pgd_val(mm->pgd[pgdi]);
   pmd_t *pmd = (pmd_t *)pgdval;
   printf("[3] pmd start %p\n", pmd);
 
@@ -298,6 +260,51 @@ void test_insert_page(void) {
   printf("[5] pte offset %p\n", (void *)pteval);
   pgtable_t table = (pgtable_t)pteval;
   printf("out %s\n", table[offset].buf);
+}
+
+void test_insert_page(void) {
+  u64 pgdi = 3;
+  u64 pmdi = 12;
+  u64 ptei = 2;
+  u64 offset = 8;
+  struct page pg;
+  struct mm_struct mm = mm_init();
+  pgd_alloc(&mm);
+
+  for (int i = 0;i < 10;i++) {
+    printf("----------------test %d------------------\n", i);
+    pgdi = i % 4;
+    pmdi = i;
+    ptei = i;
+    offset = i;
+    u64 va = 0;
+
+    char buf[8];
+    sprintf(buf, "pg %d", i);
+    buf[7] = '\0';
+    strncpy(pg.buf, buf, 8);
+
+    // pgd set
+    va |= (pgdi << PGDIR_SHIFT);
+    // pmd set
+    va |= (pmdi << PMD_SHIFT);
+    // pte set
+    va |= (ptei << PAGE_SHIFT);
+    // offset set
+    va = va | offset;
+    printf("[0] va = %p\n", (void *)va);
+    printf("[pgd index] set %lu, get %lu\n", pgdi, pgd_index(va));
+    printf("[pmd index] set %lu, get %lu\n", pmdi, pmd_index(va));
+    printf("[pte index] set %lu, get %lu\n", ptei, pte_index(va));
+    printf("[offset index] set %lu, get %lu\n", offset, va & ~PAGE_MASK);
+
+    printf("[1] insert_page start\n");
+    insert_page(&mm, &pg, va);
+    printf("[2] insert_page finish\n");
+
+    test_insert_page_check(&mm, va, pgdi, pmdi, ptei, offset);
+    printf("----------------------------------------\n");
+  }
 }
 
 int main(void) {
