@@ -139,8 +139,9 @@ int __pte_alloc(struct mm_struct *mm, pmd_t *pmd)
 
         pmdval_t pmdval = (pmdval_t) new;
         pmd[0] = __pmd(pmdval);
-
-        new = NULL;
+    }
+    else {
+        munmap(new, 4096);
     }
     spin_unlock(ptl);
     return 0;
@@ -281,12 +282,14 @@ void test_insert_page_check(struct mm_struct *mm, u64 va, u64 pgdi, u64 pmdi,
 {
     pgdval_t pgdval = pgd_val(mm->pgd[pgdi]);
     pmd_t *pmd = (pmd_t *)pgdval;
-
+    printf("[3] pmd start %p\n", pmd);
     pmdval_t pmdval = pmd_val(pmd[pmdi]);
     pte_t *pte = (pte_t *)pmdval;
-
+	printf("[4] pte start %p\n", pte);
     pteval_t pteval = pte_val(pte[ptei]);
-    pgtable_t table = (pgtable_t)pteval;
+	printf("[5] pte offset %p\n", (void *)pteval);    
+	pgtable_t table = (pgtable_t)pteval;
+	printf("out %s\n", table[offset].buf);
 }
 
 void test_insert_page(void)
@@ -331,7 +334,6 @@ void test_insert_page(void)
         printf("[2] insert_page finish\n");
 
         test_insert_page_check(&mm, va, pgdi, pmdi, ptei, offset);
-        printf("----------------------------------------\n");
     }
 }
 
